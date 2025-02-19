@@ -1,4 +1,4 @@
-# Formly - Modern Form Builder
+# QuickForms - Modern Form Builder
 
 A modern, user-friendly form builder application built with React and Firebase. Create, manage, and analyze form responses with ease.
 
