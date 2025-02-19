@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidFormResponse(formData) {
+      return formData.keys().hasAll(['formId', 'responses', 'submittedAt']) &&
+             formData.submittedAt is timestamp;
+    }
+
+    // Users collection and all nested subcollections
+    match /users/{userId} {
+      // Base user document
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow read, update: if isOwner(userId);
+      allow delete: if false; // Prevent user deletion for safety
+
+      // Forms subcollection
+      match /forms/{formId} {
+        // Allow owner to do everything with their forms
+        allow create: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow update, delete: if isOwner(userId);
+
+        // Allow public access to published forms
+        allow read: if resource.data.published == true;
+
+        // Responses subcollection under forms
+        match /responses/{responseId} {
+          // Form owner can read all responses
+          allow read: if isOwner(userId);
+          
+          // Anyone can create a response if the parent form exists and is published
+          allow create: if 
+            get(/databases/$(database)/documents/users/$(userId)/forms/$(formId)).data.published == true &&
+            isValidFormResponse(request.resource.data);
+          
+          // Only form owner can delete responses
+          allow delete: if isOwner(userId);
+          
+          // No updates to responses
+          allow update: if false;
+        }
+      }
+
+      // User settings subcollection
+      match /settings/{settingId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // User profile subcollection
+      match /profile/{profileId} {
+        allow read: if isAuthenticated();
+        allow write: if isOwner(userId);
+      }
+    }
+
+    // Templates collection (read-only for authenticated users)
+    match /templates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only admin can modify templates
+    }
+    
+    // Organizations collection
+    match /organizations/{orgId} {
+      allow read: if isAuthenticated() && (
+        resource.data.members[request.auth.uid] != null
+      );
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        resource.data.members[request.auth.uid].role in ['admin', 'owner']
+      );
+      allow delete: if isAuthenticated() && (
+        resource.data.members[request.auth.uid].role == 'owner'
+      );
+    }
+    
+    // Integrations collection
+    match /integrations/{integrationId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow write: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+  }
+} 
